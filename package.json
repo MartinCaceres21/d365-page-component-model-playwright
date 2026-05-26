@@ -2,7 +2,7 @@
   "name": "d365-page-component-model-playwright",
   "version": "1.0.0",
   "private": true,
-  "description": "Example Playwright framework using Page Component Model for Dynamics 365 automation.",
+  "description": "Example Playwright framework using Page Component Model for Microsoft Dynamics 365 E2E automation.",
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",
