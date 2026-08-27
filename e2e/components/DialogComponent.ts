@@ -1,4 +1,4 @@
-import { expect, Locator, Page } from '@playwright/test';
+import { Locator, Page } from '@playwright/test';
 
 export class DialogComponent {
   constructor(private readonly page: Page) {}
@@ -7,10 +7,11 @@ export class DialogComponent {
     return this.page.getByRole('dialog', { name });
   }
 
-  async expectVisible(name: string | RegExp): Promise<Locator> {
-    // Dialog synchronization belongs in the component instead of being repeated in specs.
+  async waitForVisible(name: string | RegExp): Promise<Locator> {
+    // Components synchronize, specs assert. A wait here is not a business assertion,
+    // so it uses waitFor instead of expect.
     const dialog = this.getByTitle(name);
-    await expect(dialog).toBeVisible({ timeout: 15000 });
+    await dialog.waitFor({ state: 'visible', timeout: 15000 });
     return dialog;
   }
 }

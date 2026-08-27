@@ -11,9 +11,16 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # The same suite runs per entity. The variation lives in the data layer,
+    # so no test or service needs to know which entity it is running against.
+    strategy:
+      fail-fast: false
+      matrix:
+        entity: [USMF, DEMF]
+
     env:
       D365_BASE_URL: ${{ secrets.D365_BASE_URL }}
-      ENTITIES: USMF
+      D365_ENTITY: ${{ matrix.entity }}
 
     steps:
       - name: Checkout
@@ -23,12 +30,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
+      # Quality gate: a type error blocks the merge before any browser starts.
+      - name: Typecheck
+        run: npm run lint
+
       - name: Install Playwright
-        run: npx playwright install --with-deps
+        run: npx playwright install --with-deps chromium
 
       - name: Run tests
         run: npm test
@@ -37,5 +49,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.entity }}
           path: playwright-report/
