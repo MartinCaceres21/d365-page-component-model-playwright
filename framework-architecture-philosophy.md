@@ -1,153 +1,62 @@
-# Framework Architecture and Philosophy
+# Why the code is organized this way
 
-## Summary
+The README says what is in the repo. This file is about the reasons behind it, mostly things I learned by getting them wrong first on a real D365 suite.
 
-This document explains the architectural decisions behind the example repository.
+## Starting from plain specs
 
-The main idea is simple:
+You can automate D365 with nothing but Playwright specs, and for the first ten tests that is probably the right call. The trouble shows up later. The same selector ends up in twenty files, every spec has its own copy of the overlay wait, and a release that renames one button means a long afternoon of search and replace. At some point maintenance takes more time than writing new tests, and that is when the structure starts paying for itself.
 
-- specs describe business intent and own the assertions
-- fixtures compose runtime dependencies
-- services orchestrate workflows
-- page objects encapsulate one screen each
-- components encapsulate recurring D365 UI mechanics
-- data holds everything that varies per entity or scenario
+## Page objects and components
 
-That separation is especially useful in D365 because many screens share the same interaction patterns even when the business scenario is different.
+A page object answers "how do I get to this screen and what is on it". That is still useful, and `SalesOrderPage` is exactly that.
 
-## Why not keep everything in the spec
+D365 adds a second axis. The combobox in the sales order dialog behaves like the combobox in a purchase order, a journal or a customer record: you type, you press Tab so the server commits the value, and you wait for the shell to unblock. Grids, dialogs and the loading overlays repeat across modules in the same way. If that behavior lives in each page object, you fix it once per screen. As a component, you fix it once. The Tab-to-commit fix in `ComboboxComponent` was written a single time and every flow that touches a combobox got it.
 
-It is possible to automate D365 directly from Playwright specs.
+## Services
 
-The problem is that direct scripting usually leads to:
+Components shouldn't know the business process. Something has to say "open the list, create the order, fill these three fields, confirm, save", and that is the service. Keeping the sequence there means a spec can read like the scenario, and when the process changes there is one place to change it.
 
-- duplicated selectors
-- duplicated waits
-- duplicated navigation sequences
-- long, low-signal tests
-- fragile maintenance when the UI changes
+## The data layer
 
-Once a test suite grows, those costs become the main source of slowdown.
+Most of the time the same flow runs for several companies and only the values change: another customer, another warehouse, another sales origin. The easy move is an `if (company === 'X')` inside the service. After a few companies the service is mostly branches and you can no longer read the flow in it.
 
-## Why components as well as page objects
+So the service never asks which company it is running for. It receives a dataset that was already resolved and validated, and adding a company means adding an entry to a map.
 
-Traditional Page Object Model groups behavior by page. That is still the right unit for "how do I reach this screen and what lives on it".
+The validation happens before the browser starts. A missing value throws with the field name. I care about this more than about anything else in the data layer, because the alternative is a default that looks plausible and a test that passes for a scenario that never actually ran.
 
-It is less expressive when the same D365 control patterns appear on many forms:
+## Fixtures
 
-- a combobox behaves the same way in every form
-- a blocking shell loader can affect any interaction
-- a grid appears in different modules with similar access patterns
-- dialogs and lookups share structure across workflows
+The fixture builds the object graph (auth, company, components, page objects, services) and hands the spec a small object to work with. Specs never log in and never instantiate anything themselves. That also means the graph can change without touching every test.
 
-Modeling those as components lets the framework reuse the same control logic across every page object, service, and scenario. A page object represents a screen; a component represents a control. The combobox blur-and-wait fix was written once and every test that touches a combobox got it.
+## Assertions stay in the spec
 
-## Why services exist
+If a check is hidden inside a service, the test stops saying what it verifies, and a failure points at plumbing instead of at the scenario. Components do wait for things (a dialog to appear, an overlay to go away), but that is synchronization. They use `waitFor`, not `expect`.
 
-Components should not tell the whole business story.
+## Checks that can't fail
 
-A service exists to orchestrate actions such as:
+This is the section I would have liked to read before starting. Most of the expensive failures I have seen in D365 were not crashes. They were reads that returned something with the right shape that answered a different question, so the test concluded something false and stayed green, or failed somewhere far away from the cause.
 
-- open the target area
-- create a record
-- fill the required sections
-- continue the workflow in the correct order
-
-This keeps business flow logic in one place and prevents specs from becoming procedural UI scripts.
-
-## Why the data layer exists
-
-The same D365 flow usually runs against several entities, where only the values change: a different customer, a different warehouse, a different origin.
-
-The tempting shortcut is to branch inside the service. That is how a workflow class slowly turns into a configuration file with clicks in it: every new entity adds a branch, and the business flow stops being readable.
-
-Here the variation lives in the data layer instead. The service receives a dataset that is already resolved for the active entity and never asks which entity it is running against. Adding an entity is a new entry in a map, not a change to the workflow.
-
-The data layer also validates before the browser starts. A missing value fails immediately with a clear message, instead of being defaulted to something plausible and producing a green test for a scenario that never ran. Failing early is cheap; a test that passes while lying is expensive.
-
-## Why fixtures matter
-
-Fixtures are the assembly point of the framework.
-
-They keep object creation and shared setup out of the spec. In practice, that means:
-
-- the spec does not instantiate every dependency manually
-- authentication and company selection do not leak into scenario code
-- the service graph can evolve without rewriting every test
-
-The fixture therefore acts as a facade over the runtime.
-
-## Why assertions stay in the spec
-
-The objects act, the spec verifies.
-
-If an assertion is hidden inside a service or a page object, the test no longer states what it is checking, and a failure points at infrastructure rather than at the scenario. Waiting is different: a component waiting for a dialog or an overlay is synchronizing, not judging the business outcome, so it uses a wait rather than an assertion.
-
-## Diagnosing a failure by layer
-
-The layers are not only a writing convention. They are also the fastest way to read a failure:
-
-- the value was never committed in the form -> synchronization, so a component
-- the record for that entity did not exist in the environment -> data
-- the locator depended on a generated id -> the test itself
-- the flow ran in the wrong order -> the service
-
-Look at the trace first and locate the failure in a layer. Re-running until it passes answers nothing.
-
-## Reads that answer a different question
-
-Most expensive failures in a real D365 suite share one shape: a read that answers a different question in the format of the right answer. The test does not crash; it concludes something false. The recurring cases, and where this repository handles them:
-
-| Trap | What it looks like | Where it is handled |
+| What happened | How it showed up | What the repo does about it |
 | --- | --- | --- |
-| A check that was already true before the action | green test, nothing was created | the spec anchors on the id the service returns |
-| Grid cell text lives in the input's `value`, not in `textContent` | `filter({ hasText })` finds no row that is plainly on screen | `GridComponent.rowByCellValue` |
-| Waiting for an overlay to hide before it appeared | the wait passes instantly, the next step fails | `LoadingComponent` (gate only, not proof of completion) |
-| `page.goto` waiting for `load` | navigation "times out" with the page already rendered | `SalesOrderPage.open` uses `domcontentloaded` |
-| `getByRole('dialog').first()` | picks an ambient dialog (action center, progress) | `DialogComponent` always goes by name |
-| `Escape` to close a flyout | with nothing open, it leaves the form | `DialogComponent.waitForHidden` comment |
-| `exact: true` on a lookup that was just committed | the accessible name gained the value, the locator never matches again | `SalesOrderPage.headerCustomerAccount` |
-| Virtualized grids | scraping the DOM returns a silently truncated list | narrow the grid to the exact id before reading |
+| The check was already true before the action ran | Green test, nothing created | The spec checks the order id returned by the service |
+| Grid values live in the input's `value` attribute, not in its text | `filter({ hasText })` can't find a row that is right there on screen | `GridComponent.rowByCellValue` |
+| Waiting for an overlay to hide before it ever appeared | The wait returns immediately and the next step fails | `LoadingComponent` is used as a gate before clicking, not as proof that work finished |
+| `page.goto` waiting for `load` | A navigation timeout with the page already rendered | `SalesOrderPage.open` waits for `domcontentloaded` |
+| `getByRole('dialog').first()` | Grabs the action center or a progress dialog | `DialogComponent` always looks dialogs up by name |
+| Pressing Escape to close a flyout | With nothing open, D365 leaves the form | Dialogs are closed through their own buttons |
+| `exact: true` on a lookup after committing it | The accessible name now includes the value, so the locator never matches again | `SalesOrderPage.headerCustomerAccount` matches by prefix |
+| Reading a virtualized grid from the DOM | A list that is silently missing rows | Filter the grid down to the exact id before reading |
 
-The shared question before trusting any check: *did this locator already resolve before the action?* If it did, it is decoration. When a result contradicts something you already know about the environment, suspect the read before the environment, and compare against a positive control — a case you know works.
+The question I ask about any check now is whether its locator would already have matched before the action. If it would have, the check is decoration. And when a result contradicts something I know about the environment, I suspect the read before the environment, and try the same read on a case I know works.
 
-## When the structure is too much
+## Reading a failure by layer
 
-Every layer in this repository is here because the repository is *about* the layers. A real suite should not start this way.
+The layers also help when something breaks. A value that never got committed is a component problem. A customer that doesn't exist in that company is data. A locator built on a generated id is the test's fault. Steps in the wrong order belong to the service. Open the trace, figure out which layer the failure is in, and fix it there. Re-running until it goes green tells you nothing.
 
-- Rule of three: wait until something has repeated three times before moving it to a shared place. One occurrence does not yet show the real pattern.
-- An abstraction earns its place only if it makes the next change cheaper. If it only adds indirection, it is cost without return.
+## Too much structure
 
-Over-abstraction is the mirror image of putting everything in the spec, and it is harder to undo.
+Every layer is here because this repo exists to show them. On a real project I wouldn't start this way. I wait until something repeats about three times before moving it to a shared place, since one occurrence doesn't tell you the shape of the pattern yet. An abstraction that doesn't make the next change cheaper is just indirection, and over-abstracting is harder to undo than putting everything in the specs.
 
-## Intended reading order for this repository
+## About this being public
 
-If you are new to the repository, read it in this order:
-
-1. `README.md`
-2. `e2e/tests/...`
-3. `e2e/fixtures/...`
-4. `e2e/services/...`
-5. `e2e/pages/...`
-6. `e2e/components/...`
-7. `e2e/data/...`
-
-That order mirrors the way a test is consumed by a reader:
-
-- first the scenario
-- then the composition layer
-- then the workflow layer
-- then the screen and UI abstraction layers
-- finally the values the whole thing runs on
-
-## Public example philosophy
-
-Because this is a public repository, the code should optimize for explanation.
-
-That means:
-
-- placeholders are acceptable when they clarify responsibility boundaries
-- comments should explain design intent, not private context
-- documentation should explain why the structure exists, not only what folders exist
-
-The repository should help readers understand how to think about D365 automation architecture even if they never run the code.
+Since this is meant to be read more than run, I kept a few placeholders (auth is the obvious one) where they make the boundaries clearer, and the comments explain design decisions rather than project history. If it helps someone think about how to organize their own D365 suite without ever running it, it did its job.

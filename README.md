@@ -1,218 +1,106 @@
 # D365 Page Component Model with Playwright
 
-This repository is a public, educational example of how to structure Microsoft Dynamics 365 end-to-end automation with Playwright using a Page Component Model.
+A small example of how I structure end-to-end tests for Microsoft Dynamics 365 Finance & Operations with Playwright and TypeScript.
 
-It is intentionally generic. It does not include client-specific logic, private URLs, credentials, or production data. The purpose is to explain the architecture and the reasoning behind it.
+There is no client code in here, no private URLs and no real data. I wrote it to show the structure and explain why it looks the way it does, so a few pieces (authentication, mostly) are placeholders.
 
-## Why this repository exists
+## Why D365 needs more than a page object per page
 
-Automating D365 is not the same as automating a simple marketing site or CRUD application.
+If you have automated D365 you already know the usual problems. Forms are huge and full of repeated controls. The shell blocks itself with overlays while the server works. The same grids, dialogs and lookups show up in every module. Selectors copied straight into specs break with every release. And the same business flow has to run against several companies, each with its own customers and warehouses.
 
-D365 usually introduces a set of recurring testing problems:
+Put all of that inside the specs and they get long and hard to change very quickly. What worked for me was splitting the code by what kind of knowledge it holds:
 
-- large forms with repeated controls
-- dynamic shell blocking and loading states
-- grids, dialogs, and lookup patterns that appear across many flows
-- selectors that become fragile when copied directly into specs
-- business processes that span multiple pages or sub-flows
-- the same flow running against several entities with different data
+- **Page objects** know one screen: how to get there and what is on it.
+- **Components** know one control type that appears on many screens (combobox, grid, dialog, loading overlay).
+- **Services** know a business flow and the order of its steps.
+- **Data** knows what changes from one company to another.
+- **Fixtures** put everything together so the spec receives ready-to-use objects.
+- **Specs** describe the scenario and check the result.
 
-If tests interact with all of that directly, specs quickly become long, repetitive, and hard to maintain.
+Plain Page Object Model covers the first item. The second one is what "component" adds, and in D365 it is where most of the value is, because a combobox behaves the same way in every form of the application.
 
-This repository shows one way to solve that problem:
-
-- keep specs focused on business intent
-- move workflow orchestration into services
-- move D365 control behavior into reusable components
-- keep entity variation in the data layer instead of branching inside the workflow
-- use fixtures as the composition root for the test runtime
-
-## What "Page Component Model" means here
-
-Classic Page Object Model often maps one class to one page.
-
-That still applies: a page object models a screen. But D365 also repeats the same UI primitives across many forms:
-
-- comboboxes
-- dialogs
-- grids
-- blocking loaders
-
-So this example uses both, with a clear split:
-
-- a **page object** models one screen: how to reach it and where its screen-level controls are
-- a **component** models one control that appears on many screens
-- a **service** models a business workflow
-- a **fixture** wires the runtime together
-- a **spec** describes the scenario and verifies the outcome
-
-## Repository structure
+## Layout
 
 ```txt
 e2e/
-|- components/      # Reusable D365 control abstractions
-|- data/            # Test data per entity, with validation and builders
+|- components/      # Controls reused across screens
+|- data/            # Datasets per company, validation, builder
 |- fixtures/        # Test composition and shared setup
-|- pages/           # Page objects: one screen each
-|- services/        # Business workflow orchestration
-|- tests/           # Thin business-facing specs
-\- utils/           # Cross-cutting helpers
+|- pages/           # One page object per screen
+|- services/        # Business flows
+|- tests/           # Specs
+\- utils/           # Auth placeholder
 ```
 
-## Design patterns, and where each one lives
-
-The architecture is not a pile of folders. Each folder exists because a known pattern earns its place.
-
-| Pattern | What it solves | Where it lives here |
-| --- | --- | --- |
-| Page Object | Encapsulate one screen | [e2e/pages/SalesOrderPage.ts](e2e/pages/SalesOrderPage.ts) |
-| Component | Encapsulate a control reused across screens | [e2e/components/](e2e/components/) |
-| Service Layer | Orchestrate a business workflow | [e2e/services/SalesOrderService.ts](e2e/services/SalesOrderService.ts) |
-| Facade | Hide a complex setup behind something simple | [e2e/fixtures/testBasic.ts](e2e/fixtures/testBasic.ts) |
-| Dependency Injection | Pass the pieces in instead of building them inside | the constructors of the service and the components |
-| Builder | Assemble a complex object step by step | [e2e/data/SalesOrderBuilder.ts](e2e/data/SalesOrderBuilder.ts) |
-| Data-driven variation | Vary the run per entity without branching | [e2e/data/salesOrderData.ts](e2e/data/salesOrderData.ts) |
-
-That last row is where a Strategy pattern is often reached for too early. If only the *values* change per entity, the data layer is enough. Strategy is for when the *steps* themselves genuinely differ.
-
-## Where does a new piece of code live?
-
-When you write something new, the question is not "does it work?" but "where does it go?".
-
-1. Is it a business rule or a whole flow? -> **service**
-2. Is it interaction with a reusable control? -> **component**
-3. Is it interaction with one specific screen? -> **page object**
-4. Does it prepare context: login, company, data? -> **fixture**
-5. Is it a verification of the case? -> it stays in the **spec**
-6. Is it a value that changes per entity or scenario? -> **data**
-
-## D365 problems mapped to layers
-
-| Problem | Layer that owns it |
+| Pattern | Where |
 | --- | --- |
-| Login and session | Fixture / `AuthService` |
-| Active company (entity) | Fixture, carried into the URL by the page object |
-| Data that differs per entity | Data layer: loader plus validation |
-| Combobox that only commits on blur | Component |
-| Repeated grid or dialog | Component |
-| Full sales order flow | Service |
-| Verifying the result | Spec (assertion) |
+| Page Object | [e2e/pages/SalesOrderPage.ts](e2e/pages/SalesOrderPage.ts) |
+| Component | [e2e/components/](e2e/components/) |
+| Service layer | [e2e/services/SalesOrderService.ts](e2e/services/SalesOrderService.ts) |
+| Fixture as facade / composition root | [e2e/fixtures/testBasic.ts](e2e/fixtures/testBasic.ts) |
+| Dependency injection | constructors of the service and the components |
+| Builder | [e2e/data/SalesOrderBuilder.ts](e2e/data/SalesOrderBuilder.ts) |
+| Data-driven variation per company | [e2e/data/salesOrderData.ts](e2e/data/salesOrderData.ts) |
 
-## Layer responsibilities
+About the last row: people often reach for a Strategy pattern when a flow has to run for several companies. If only the values change, a dataset per company is enough. I would only bring in Strategy when the steps themselves are different.
 
-### `components`
+## Deciding where new code goes
 
-Components wrap technical interaction with recurring D365 controls: the selector strategy for a control type, the synchronization specific to that control, and the low-level interaction details.
+This is the checklist I use when I am not sure:
 
-Two D365 specifics are solved here once, for the whole suite:
+1. A whole business flow, or a rule about the order of steps? Service.
+2. How to operate a control that exists on many screens? Component.
+3. Something specific to one screen? Page object.
+4. Login, company selection, loading data? Fixture.
+5. A check on the outcome of the scenario? Stays in the spec.
+6. A value that is different per company or per scenario? Data.
 
-- `ComboboxComponent` types the value, presses `Tab` so D365 fires its internal event, and only then continues. Without the blur the field *looks* filled but the value was never committed, and the test fails later in a confusing place.
-- `LoadingComponent` waits for the blocking overlay to be hidden. Wait for observable state, never for the clock: a fixed timeout passes locally and fails in the pipeline.
+And the same thing seen from the D365 side:
 
-What does not belong here: end-to-end business workflows, business assertions, authentication or environment setup.
+| Problem | Where it lives |
+| --- | --- |
+| Login and session | Fixture (`AuthService`) |
+| Active company | Fixture, then the URL built by the page object |
+| Values that differ per company | Data layer |
+| Combobox that only commits on Tab | `ComboboxComponent` |
+| Shell overlays | `LoadingComponent` |
+| Grids and dialogs | `GridComponent`, `DialogComponent` |
+| The sales order flow | `SalesOrderService` |
+| Checking the result | The spec |
 
-### `pages`
+## A few details worth pointing out
 
-A page object owns one screen: how to navigate to it, and where its screen-level controls are.
+`ComboboxComponent` types the value and then presses Tab. D365 only commits the value on blur, so without the Tab the field looks filled but the server never got it, and the test fails later somewhere that makes no sense.
 
-`SalesOrderPage` navigates by menu item (`?cmp=<entity>&mi=SalesTableListPage`) instead of clicking through the shell menu. That is stable across releases and carries the company in the URL.
+`LoadingComponent` waits for the three shell overlays (`#ShellBlockingDiv`, `#blockingMessage`, `#ShellProcessingDiv`) to be hidden. That is enough before the next click. It does not prove that a long operation finished, because an overlay that has not appeared yet is already "hidden".
 
-### `services`
+`SalesOrderPage` opens the list with a menu item URL (`?cmp=<company>&mi=SalesTableListPage`) instead of clicking through the navigation pane. It survives releases better and puts the company in the URL. It also uses `waitUntil: 'domcontentloaded'`, since D365 keeps connections open and the `load` event may never fire.
 
-Services express business intent using page objects and components: multi-step flow logic, sequencing, and reusable business actions shared by several specs.
+`SalesOrderService.createManualOrder` returns the id of the order it created. The spec uses that id for its checks. An earlier version of the spec looked for a grid row with the customer account, and that row was there before the test even started (older orders for the same customer), so the test could not fail. [framework-architecture-philosophy.md](framework-architecture-philosophy.md) has more cases like that one.
 
-What does not belong here: raw duplicated locators, global test setup, and — specifically for D365 — branching per entity. If the values differ per entity, that variation belongs in the data layer so the service stays generic.
+Assertions live in the specs. Services and page objects wait for things, but they do not decide whether the scenario passed. When a check is buried inside a service, whoever reads the test can't tell what is being verified.
 
-### `data`
+The data layer validates the dataset before the browser opens. If a value is missing it throws with the field name. Silently falling back to a default would give you a green test for a scenario that never ran.
 
-The data layer resolves and validates a dataset before the browser does anything:
+## Reading the code
 
-- per-entity values live in one map instead of being scattered through the workflow
-- `validateSalesOrderData` fails fast and loud on a missing value
-
-Silently defaulting a missing value makes the test pass while exercising the wrong scenario. A test that fails clearly is worth more than one that passes lying.
-
-`SalesOrderBuilder` starts from the entity dataset and overrides only what a scenario needs, so a variation does not require a new service method.
-
-### `fixtures`
-
-Fixtures act as the composition root. They prepare the Playwright runtime, resolve shared setup such as authentication and the active entity, instantiate components and services, and expose a clean facade to specs.
-
-This keeps specs small and prevents every test from rebuilding the same object graph. No spec should ever log in by itself.
-
-### `tests`
-
-Specs describe the scenario and verify it. A good spec in this style calls a service, passes scenario inputs, and performs a small number of meaningful assertions.
-
-**Objects act, the spec verifies.** Assertions stay in the spec: if they are hidden inside a service or a page object, whoever reads the test no longer knows what is being checked. Components may still *wait* for state — that is synchronization, not a business assertion.
-
-## Request flow in this example
-
-1. The spec declares the business scenario.
-2. The fixture provides authenticated page context, the resolved entity dataset, and ready-to-use objects.
-3. The service expresses the D365 workflow at a business level.
-4. The page object and the components encapsulate interaction with the screen and its recurring UI primitives.
-
-## Example walkthrough
-
-The thin example spec is [e2e/tests/sales-orders/create-direct-sales-order.spec.ts](e2e/tests/sales-orders/create-direct-sales-order.spec.ts).
-
-It depends on [e2e/fixtures/testBasic.ts](e2e/fixtures/testBasic.ts), which composes:
-
-- [e2e/utils/AuthService.ts](e2e/utils/AuthService.ts)
-- [e2e/data/salesOrderData.ts](e2e/data/salesOrderData.ts)
-- [e2e/pages/SalesOrderPage.ts](e2e/pages/SalesOrderPage.ts)
-- [e2e/components/ComboboxComponent.ts](e2e/components/ComboboxComponent.ts)
-- [e2e/components/DialogComponent.ts](e2e/components/DialogComponent.ts)
-- [e2e/components/GridComponent.ts](e2e/components/GridComponent.ts)
-- [e2e/components/LoadingComponent.ts](e2e/components/LoadingComponent.ts)
-- [e2e/services/SalesOrderService.ts](e2e/services/SalesOrderService.ts)
-
-Authentication stays a placeholder on purpose: publishing a real login flow is not the point of this repository.
+Start with the spec, [e2e/tests/sales-orders/create-direct-sales-order.spec.ts](e2e/tests/sales-orders/create-direct-sales-order.spec.ts), then follow what it uses: the fixture in [e2e/fixtures/testBasic.ts](e2e/fixtures/testBasic.ts), the service, the page object, the components, and finally the data.
 
 ## Running it
 
 ```bash
 npm ci
 npx playwright install --with-deps chromium
-cp .env.example .env     # then point D365_BASE_URL at your own sandbox
+cp .env.example .env     # point D365_BASE_URL at your own sandbox
 npm test
 ```
 
-The UI specs skip themselves when `D365_BASE_URL` is not set, so a clean checkout stays green. The data-layer specs in [e2e/tests/data/](e2e/tests/data/) run everywhere: no browser, no sandbox.
+Without `D365_BASE_URL` the UI specs skip themselves, so a clean checkout stays green. The specs in [e2e/tests/data/](e2e/tests/data/) don't need a browser or a sandbox and always run.
 
-`D365_ENTITY` selects the dataset. CI runs the same suite once per entity through a matrix: same flow, different data, no branching in the code.
+`D365_ENTITY` picks the company dataset. In CI the suite runs once per company through a matrix, same code, different data.
 
-## Design principles
+## Don't copy all the layers on day one
 
-- Specs stay thin, business-oriented, and own the assertions.
-- Components absorb D365 UI complexity: one problem, one place.
-- Services own workflow sequencing and stay free of entity branching.
-- Fixtures compose dependencies and shared setup.
-- Wait for observable state, never for the clock.
-- Data is validated before execution, never silently defaulted.
-- Every check must be able to fail: anchor it to the record this run created, not to anything that happens to match. See *Reads that answer a different question* in [framework-architecture-philosophy.md](framework-architecture-philosophy.md).
+This repo shows every layer because the layers are the point of the repo. A real suite should grow into them. I usually wait until something has repeated about three times before moving it to a shared place, because with one occurrence you don't know yet what the real pattern is. If an abstraction doesn't make the next change cheaper, it's just one more file to open.
 
-## When not to add a layer
-
-The opposite mistake to "everything in the spec" is abstracting too early.
-
-- Rule of three: do not move something into a shared place until it has repeated three times. With a single occurrence you do not yet know what the real pattern is.
-- An abstraction is good only if it lowers the cost of change. The control question: does this make the next change easier, or only more indirect?
-
-A repository this size can afford to show every layer because the layers are its subject. A real suite should grow into them.
-
-## What this repository is not
-
-This repository is not:
-
-- a production-ready D365 automation framework
-- a client implementation
-- a full selector library
-- a reference for authentication hardening
-
-It is a documentation-first example of how to organize the automation codebase.
-
-## Next step if you want to go deeper
-
-See [framework-architecture-philosophy.md](framework-architecture-philosophy.md) for a deeper explanation of why this structure fits D365 particularly well.
+This is not a framework you can drop into a project, and it is not a reference for authentication. It is an example of how to organize the code, with the reasoning written down.
