@@ -110,11 +110,32 @@ And the same thing seen from the D365 side:
 
 `SalesOrderPage` opens the list with a menu item URL (`?cmp=<company>&mi=SalesTableListPage`) instead of clicking through the navigation pane. It survives releases better and puts the company in the URL. It also uses `waitUntil: 'domcontentloaded'`, since D365 keeps connections open and the `load` event may never fire.
 
-`SalesOrderService.createManualOrder` returns the id of the order it created. The spec uses that id for its checks. An earlier version of the spec looked for a grid row with the customer account, and that row was there before the test even started (older orders for the same customer), so the test could not fail. [framework-architecture-philosophy.md](framework-architecture-philosophy.md) has more cases like that one.
+`SalesOrderService.createManualOrder` returns the id of the order it created. The spec uses that id for its checks. An earlier version of the spec looked for a grid row with the customer account, and that row was there before the test even started (older orders for the same customer), so the test could not fail. The next section has more cases like that one.
 
 Assertions live in the specs. Services and page objects wait for things, but they do not decide whether the scenario passed. When a check is buried inside a service, whoever reads the test can't tell what is being verified.
 
 The data layer validates the dataset before the browser opens. If a value is missing it throws with the field name. Silently falling back to a default would give you a green test for a scenario that never ran.
+
+## Checks that can't fail
+
+This is the section I would have liked to read before starting. Most of the expensive failures I have seen in D365 were not crashes. They were reads that returned something with the right shape that answered a different question, so the test concluded something false and stayed green, or failed somewhere far away from the cause.
+
+| What happened | How it showed up | What the repo does about it |
+| --- | --- | --- |
+| The check was already true before the action ran | Green test, nothing created | The spec checks the order id returned by the service |
+| Grid values live in the input's `value` attribute, not in its text | `filter({ hasText })` can't find a row that is right there on screen | `GridComponent.rowByCellValue` |
+| Waiting for an overlay to hide before it ever appeared | The wait returns immediately and the next step fails | `LoadingComponent` is used as a gate before clicking, not as proof that work finished |
+| `page.goto` waiting for `load` | A navigation timeout with the page already rendered | `SalesOrderPage.open` waits for `domcontentloaded` |
+| `getByRole('dialog').first()` | Grabs the action center or a progress dialog | `DialogComponent` always looks dialogs up by name |
+| Pressing Escape to close a flyout | With nothing open, D365 leaves the form | Dialogs are closed through their own buttons |
+| `exact: true` on a lookup after committing it | The accessible name now includes the value, so the locator never matches again | `SalesOrderPage.headerCustomerAccount` matches by prefix |
+| Reading a virtualized grid from the DOM | A list that is silently missing rows | Filter the grid down to the exact id before reading |
+
+The question I ask about any check now is whether its locator would already have matched before the action. If it would have, the check is decoration. And when a result contradicts something I know about the environment, I suspect the read before the environment, and try the same read on a case I know works.
+
+## Reading a failure by layer
+
+The layers also help when something breaks. A value that never got committed is a component problem. A customer that doesn't exist in that company is data. A locator built on a generated id is the test's fault. Steps in the wrong order belong to the service. Open the trace, figure out which layer the failure is in, and fix it there. Re-running until it goes green tells you nothing.
 
 ## Reading the code
 
