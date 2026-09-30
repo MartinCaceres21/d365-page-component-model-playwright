@@ -191,6 +191,7 @@ The UI specs skip themselves when `D365_BASE_URL` is not set, so a clean checkou
 - Fixtures compose dependencies and shared setup.
 - Wait for observable state, never for the clock.
 - Data is validated before execution, never silently defaulted.
+- Every check must be able to fail: anchor it to the record this run created, not to anything that happens to match. See *Reads that answer a different question* in [framework-architecture-philosophy.md](framework-architecture-philosophy.md).
 
 ## When not to add a layer
 

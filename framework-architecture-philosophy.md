@@ -94,6 +94,23 @@ The layers are not only a writing convention. They are also the fastest way to r
 
 Look at the trace first and locate the failure in a layer. Re-running until it passes answers nothing.
 
+## Reads that answer a different question
+
+Most expensive failures in a real D365 suite share one shape: a read that answers a different question in the format of the right answer. The test does not crash; it concludes something false. The recurring cases, and where this repository handles them:
+
+| Trap | What it looks like | Where it is handled |
+| --- | --- | --- |
+| A check that was already true before the action | green test, nothing was created | the spec anchors on the id the service returns |
+| Grid cell text lives in the input's `value`, not in `textContent` | `filter({ hasText })` finds no row that is plainly on screen | `GridComponent.rowByCellValue` |
+| Waiting for an overlay to hide before it appeared | the wait passes instantly, the next step fails | `LoadingComponent` (gate only, not proof of completion) |
+| `page.goto` waiting for `load` | navigation "times out" with the page already rendered | `SalesOrderPage.open` uses `domcontentloaded` |
+| `getByRole('dialog').first()` | picks an ambient dialog (action center, progress) | `DialogComponent` always goes by name |
+| `Escape` to close a flyout | with nothing open, it leaves the form | `DialogComponent.waitForHidden` comment |
+| `exact: true` on a lookup that was just committed | the accessible name gained the value, the locator never matches again | `SalesOrderPage.headerCustomerAccount` |
+| Virtualized grids | scraping the DOM returns a silently truncated list | narrow the grid to the exact id before reading |
+
+The shared question before trusting any check: *did this locator already resolve before the action?* If it did, it is decoration. When a result contradicts something you already know about the environment, suspect the read before the environment, and compare against a positive control — a case you know works.
+
 ## When the structure is too much
 
 Every layer in this repository is here because the repository is *about* the layers. A real suite should not start this way.

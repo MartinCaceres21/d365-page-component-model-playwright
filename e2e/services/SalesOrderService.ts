@@ -16,8 +16,11 @@ export class SalesOrderService {
   /**
    * Reads as workflow, not as UI mechanics: no selectors, no waits, and no
    * per-entity branching. The entity variation arrives already resolved in `data`.
+   *
+   * Returns the id D365 assigned, so the spec can anchor its checks to THIS run's
+   * record instead of to anything that happens to match.
    */
-  async createManualOrder(data: SalesOrderData): Promise<void> {
+  async createManualOrder(data: SalesOrderData): Promise<string> {
     await this.salesOrderPage.open(data.entity);
     await this.salesOrderPage.clickNew();
 
@@ -37,8 +40,13 @@ export class SalesOrderService {
     );
 
     await createDialog.getByRole('button', { name: 'OK' }).click();
+    // Invalid data keeps the dialog open with a validation summary: stop here, at the
+    // step that failed, not three steps later on a field "that does not exist".
+    await this.dialog.waitForHidden(createDialog);
     await this.loading.waitUntilReady();
 
     await this.salesOrderPage.save();
+
+    return this.salesOrderPage.orderNumber().inputValue();
   }
 }

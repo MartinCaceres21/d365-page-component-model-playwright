@@ -7,18 +7,23 @@ test.describe('Sales Orders - Direct sales', () => {
 
   test('creates a direct sales order with the entity dataset', async ({ data, pageObjects }) => {
     // The spec reads like the scenario: one workflow call, then the business check.
-    await pageObjects.salesOrderService.createManualOrder(data);
+    const orderId = await pageObjects.salesOrderService.createManualOrder(data);
 
-    // Objects act, the spec verifies.
-    await expect(pageObjects.grid.rowByText(data.customerAccount)).toBeVisible();
+    // Objects act, the spec verifies. Every check must be able to FAIL: a row with this
+    // customer account already existed before the run (older orders), so it proved nothing.
+    // The order header only exists once the create navigated to the new record.
+    expect(orderId).toMatch(/\S/);
+    await expect(pageObjects.salesOrderPage.headerCustomerAccount()).toHaveValue(data.customerAccount);
   });
 
   test('creates a direct sales order for a specific warehouse', async ({ data, pageObjects }) => {
     // Same workflow, scenario-specific data. No new service method, no if/else.
     const order = new SalesOrderBuilder(data).withWarehouse('13').build();
 
-    await pageObjects.salesOrderService.createManualOrder(order);
+    const orderId = await pageObjects.salesOrderService.createManualOrder(order);
 
-    await expect(pageObjects.grid.rowByText(order.customerAccount)).toBeVisible();
+    // Back on the list, anchored by THIS run's id: exactly one row, no lookalikes.
+    await pageObjects.salesOrderPage.open(order.entity);
+    await expect(pageObjects.grid.rowByCellValue('Sales order', orderId)).toHaveCount(1);
   });
 });
