@@ -17,7 +17,41 @@ Put all of that inside the specs and they get long and hard to change very quick
 - **Fixtures** put everything together so the spec receives ready-to-use objects.
 - **Specs** describe the scenario and check the result.
 
-Plain Page Object Model covers the first item. The second one is what "component" adds, and in D365 it is where most of the value is, because a combobox behaves the same way in every form of the application.
+Here is how the pieces call each other in this repo:
+
+```txt
+                      +---------------------------------------+
+                      | fixture (testBasic)                   |
+  D365_ENTITY ------> |  company -> data (loaded, validated)  |
+                      |  login, builds the objects below      |
+                      +-------------------+-------------------+
+                                          | hands the spec: data, pageObjects
+                                          v
+                      +---------------------------------------+
+                      | spec                                  |
+                      |  calls the service, then asserts      |<--- expect() only here
+                      +-------------------+-------------------+
+                                          | createManualOrder(data) -> order id
+                                          v
+                      +---------------------------------------+
+                      | service (SalesOrderService)           |
+                      |  order of the steps, no selectors     |
+                      +---------+-------------------+---------+
+                                |                   |
+                                v                   v
+               +------------------------+   +--------------------------+
+               | page (SalesOrderPage)  |   | components               |
+               |  one screen: URL,      |   |  Combobox  Dialog        |
+               |  buttons, header       |-->|  Grid      Loading       |
+               +------------------------+   +--------------------------+
+                                                         |
+                                                         v
+                                                   D365 in the browser
+```
+
+Arrows go one way only. Components never call pages or services, and the service never looks at which company it is running for.
+
+Plain Page Object Model gives you the page objects. Components are what this adds on top, and in D365 it is where most of the value is, because a combobox behaves the same way in every form of the application.
 
 ## Layout
 
